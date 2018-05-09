@@ -528,6 +528,15 @@ bool pcl::EnsensoGrabber::openDevice (std::string serial)
   PCL_INFO ("Opening Ensenso stereo camera S/N: %s\n", serial.c_str());
   try
   {
+    if(serial == "")
+    {
+      NxLibItem cameras = NxLibItem()[itmCameras][itmBySerialNo];
+      if (cameras.count() > 0)
+      {
+        serial = cameras[0].name();
+      }
+    }
+
     // Create a pointer referencing the camera's tree item, for easier access:
     camera_ = (*root_)[itmCameras][itmBySerialNo][serial];
     if (!camera_.exists () || camera_[itmType] != valStereo)

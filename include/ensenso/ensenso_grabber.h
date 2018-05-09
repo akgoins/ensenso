@@ -30,7 +30,10 @@ class PCL_EXPORTS EnsensoGrabber : public Grabber
 
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    
+
+    /** @brief Reference to the camera tree */
+    NxLibItem camera_;
+
     /** @cond */
     typedef boost::shared_ptr<EnsensoGrabber> Ptr;
     typedef boost::shared_ptr<const EnsensoGrabber> ConstPtr;
@@ -464,9 +467,6 @@ protected:
     
     /** @brief Boost images + point cloud signal */
     boost::signals2::signal<sig_cb_ensenso_point_cloud_images>* point_cloud_images_signal_;
-    
-    /** @brief Reference to the camera tree */
-    NxLibItem camera_;
     
     /** @brief Reference to the NxLib tree root */
     boost::shared_ptr<const NxLibItem> root_;

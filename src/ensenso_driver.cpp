@@ -54,6 +54,7 @@ class EnsensoDriver
     bool                              is_streaming_images_;
     bool                              stream_calib_pattern_;
     int                               trigger_mode_;
+    bool                              color_cloud_;
     // Camera info
     ros::Publisher                    linfo_pub_;
     ros::Publisher                    rinfo_pub_;
@@ -72,7 +73,7 @@ class EnsensoDriver
     {
       // Read parameters
       std::string serial;
-      nh_private_.param(std::string("serial"), serial, std::string("150534"));
+      nh_private_.param(std::string("serial"), serial, std::string(""));
       if (!nh_private_.hasParam("serial"))
         ROS_WARN_STREAM("Parameter [~serial] not found, using default: " << serial);
       nh_private_.param("camera_frame_id", camera_frame_id_, std::string("ensenso_optical_frame"));
@@ -266,7 +267,7 @@ class EnsensoDriver
       ensenso_ptr_->setFillBorderSpread(config.FillBorderSpread);
       ensenso_ptr_->setFillRegionSize(config.FillRegionSize);
       // Streaming parameters
-      configureStreaming(config.Cloud, config.Images, config.TriggerMode);
+      configureStreaming(config.Cloud, config.Images, config.TriggerMode, config.ColorCloud);
     }
 
     bool collectPatternCB(ensenso::CollectPattern::Request& req, ensenso::CollectPattern::Response &res)
@@ -310,9 +311,10 @@ class EnsensoDriver
       return true;
     }
 
-    bool configureStreaming(const bool cloud, const bool images, const int trigger_mode)
+    bool configureStreaming(const bool cloud, const bool images, const int trigger_mode, const bool color_cloud)
     {
       bool was_running = ensenso_ptr_->isRunning();
+      color_cloud_ = color_cloud;
       if ((is_streaming_cloud_ != cloud) || (is_streaming_images_ != images))
       {
         is_streaming_cloud_ = cloud;
@@ -322,7 +324,7 @@ class EnsensoDriver
         // Disconnect previous connection
         connection_.disconnect();
         // Connect new signals
-        if (cloud && images)
+        if ((cloud && images) || color_cloud)
         {
           boost::function<void(
             const boost::shared_ptr<PointCloudXYZ>&,
@@ -438,8 +440,45 @@ class EnsensoDriver
       // Camera_info
       linfo_pub_.publish(linfo);
       rinfo_pub_.publish(rinfo);
+
       // Point cloud
-      if (cloud_pub_.getNumSubscribers() > 0)
+      if(color_cloud_ && cloud_pub_.getNumSubscribers() > 0)
+      {
+        // Turn off flexview and projector
+        bool flex_view = ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].asBool();
+        int views;
+        if(flex_view)
+        {
+          views = ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].asInt();
+        }
+        ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].set(false);
+        ensenso_ptr_->camera_[itmParameters][itmCapture][itmProjector].set(false);
+
+        // capture image
+        NxLibCommand (cmdCapture).execute();
+        NxLibCommand (cmdRectifyImages).execute();
+        std::vector<unsigned char> grayscale_data;
+        grayscale_data.resize(1280 * 1024);
+        ensenso_ptr_->camera_[itmImages][itmRectified][itmLeft].getBinaryData(grayscale_data, NULL);
+
+        // restore the projector settings
+        ensenso_ptr_->camera_[itmParameters][itmCapture][itmProjector].set(true);
+        if(flex_view)
+        {
+          ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].set(views);
+        }
+
+        // make color point cloud and publish
+        pcl::PointCloud<pcl::PointXYZRGB> rgb_cloud;
+        applyColor(*cloud, grayscale_data, rgb_cloud);
+
+        rgb_cloud.header.frame_id = camera_frame_id_;
+        sensor_msgs::PointCloud2 cloud_msg;
+        pcl::toROSMsg(rgb_cloud, cloud_msg);
+        cloud_msg.header.stamp = now;
+        cloud_pub_.publish(cloud_msg);
+      }
+      else if (cloud_pub_.getNumSubscribers() > 0)
       {
         cloud->header.frame_id = camera_frame_id_;
         sensor_msgs::PointCloud2 cloud_msg;
@@ -512,6 +551,33 @@ class EnsensoDriver
       header.frame_id = camera_frame_id_;
       header.stamp = now;
       return cv_bridge::CvImage(header, encoding, image_mat).toImageMsg();
+    }
+
+    void applyColor(const pcl::PointCloud<pcl::PointXYZ>& points, const std::vector<unsigned char>& grays,
+                    pcl::PointCloud<pcl::PointXYZRGB>& color_points)
+    {
+      uint32_t width = points.width;
+      uint32_t height = points.height;
+
+      color_points.clear();
+      color_points.width = width;
+      color_points.height = height;
+      color_points.is_dense = points.is_dense;
+
+      for (size_t i = 0; i < points.points.size(); ++i)
+      {
+        //const pcl::PointXYZRGB ref = points.points[i];
+        pcl::PointXYZRGB new_pt;
+        new_pt.x = points.points[i].x;
+        new_pt.y = points.points[i].y;
+        new_pt.z = points.points[i].z;
+
+        new_pt.r = grays[i];
+        new_pt.g = grays[i];
+        new_pt.b = grays[i];
+
+        color_points.points.push_back(new_pt);
+      }
     }
 };
 
