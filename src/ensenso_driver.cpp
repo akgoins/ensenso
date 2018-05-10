@@ -445,11 +445,23 @@ class EnsensoDriver
       if(color_cloud_ && cloud_pub_.getNumSubscribers() > 0)
       {
         // Turn off flexview and projector
-        bool flex_view = ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].asBool();
+        bool flex_view = ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].exists();
+        bool flex_object = ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].isObject();
+        //NxLibItem flexView = ensenso_ptr_->camera_[itmParameters][itmCapture];
+        NxLibItem flexView = ensenso_ptr_->camera_[itmParameters][itmCapture];
+
+        if(flexView.isObject())
+        {
+          ROS_INFO("flex view object");
+        }
         int views;
         if(flex_view)
         {
-          views = ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].asInt();
+          ROS_INFO("flex view exists");
+          int* error_code;
+          views = ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].asInt(error_code);
+          ROS_INFO("flex view num images: %d", views);
+          //ROS_INFO("flex error: %d", *error_code);
         }
         ensenso_ptr_->camera_[itmParameters][itmCapture][itmFlexView].set(false);
         ensenso_ptr_->camera_[itmParameters][itmCapture][itmProjector].set(false);
